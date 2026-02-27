@@ -5,7 +5,7 @@ This test suite validates the FastAPI application that manages extracurricular
 activities. It tests the root endpoint, activity retrieval, and signup functionality.
 """
 
-import pytest
+import pytest # type: ignore
 from fastapi.testclient import TestClient
 from src.app import app
 
@@ -24,15 +24,13 @@ class TestRootEndpoint:
         to the static index.html file. This is the entry point for the web application.
         Checks for HTTP 307 (Temporary Redirect) status code.
         """
-        # Make a GET request to the root path without following redirects to see the redirect response
+        # Arrange: No setup needed - the endpoint is always available
+        
+        # Act: Make a GET request to the root path without following redirects
         response = client.get("/", follow_redirects=False)
         
-        # Verify the response is a 307 Temporary Redirect status code
-        # (HTTP 307 means the client should temporarily redirect to another URL)
+        # Assert: Verify the response and location header
         assert response.status_code == 307
-        
-        # Verify the Location header contains the correct target URL (/static/index.html)
-        # This tells the client where to redirect to
         assert response.headers["location"] == "/static/index.html"
 
 
@@ -48,21 +46,15 @@ class TestGetActivities:
         - A dictionary of activities
         - At least one activity exists in the database
         """
-        # Send a GET request to the /activities endpoint
+        # Arrange: No setup needed - activities are pre-loaded
+        
+        # Act: Send a GET request to the /activities endpoint
         response = client.get("/activities")
-        
-        # Verify the request was successful (HTTP 200 OK)
-        assert response.status_code == 200
-        
-        # Extract the JSON response data
         data = response.json()
         
-        # Verify the response is a dictionary (keyed by activity name)
-        # rather than a list or other data structure
+        # Assert: Verify successful response and data structure
+        assert response.status_code == 200
         assert isinstance(data, dict)
-        
-        # Verify there is at least one activity in the database
-        # This ensures the endpoint returns meaningful data
         assert len(data) > 0
 
     def test_activities_have_required_fields(self):
@@ -78,22 +70,15 @@ class TestGetActivities:
         This ensures the API contract is maintained and clients can rely on
         these fields being present.
         """
-        # Fetch all activities from the API
+        # Arrange: Fetch activities and define required fields
         response = client.get("/activities")
         activities = response.json()
-
-        # Define the exact set of required fields for each activity
-        # Using a set to make exact matching easier
         required_fields = {"description", "schedule", "max_participants", "participants"}
 
-        # Iterate through each activity to validate its structure
+        # Act & Assert: Validate each activity has exactly the required fields
         for activity_name, activity_details in activities.items():
-            # Verify activity name is a non-empty string
             assert isinstance(activity_name, str)
             assert len(activity_name) > 0
-            
-            # Verify the activity has EXACTLY the required fields (no more, no less)
-            # This prevents accidental inclusion of extra fields and ensures consistency
             assert set(activity_details.keys()) == required_fields
 
     def test_activities_have_valid_data_types(self):
@@ -108,28 +93,132 @@ class TestGetActivities:
         
         This ensures type safety and prevents frontend errors from incorrect data.
         """
-        # Fetch all activities from the API
+        # Arrange: Fetch activities from the API
         response = client.get("/activities")
         activities = response.json()
 
-        # Check data types for each activity
+        # Act & Assert: Validate data types for each activity field
         for activity_name, activity_details in activities.items():
-            # Verify description and schedule are both strings
-            # These are text fields describing the activity and when it meets
             assert isinstance(activity_details["description"], str)
             assert isinstance(activity_details["schedule"], str)
-            
-            # Verify max_participants is an integer
-            # This represents the enrollment capacity limit
             assert isinstance(activity_details["max_participants"], int)
-            
-            # Verify participants is a list (could be empty or contain emails)
-            # This represents all currently signed-up students
             assert isinstance(activity_details["participants"], list)
-            
-            # Verify each participant in the list is a string (email address)
-            # Using all() to check every element in the participants list
             assert all(isinstance(p, str) for p in activity_details["participants"])
+
+
+class TestGetActivity:
+    """Test the get specific activity endpoint"""
+
+    def test_get_activity_by_name_returns_200(self):
+        """
+        Test successfully retrieving a specific activity by name
+        
+        Validates:
+        - Valid activity names are accepted
+        - Correct HTTP 200 status is returned
+        - Activity details are returned in response
+        """
+        # Arrange: Target a known activity
+        activity_name = "Chess Club"
+        
+        # Act: Get the specific activity
+        response = client.get(f"/activities/{activity_name}")
+        
+        # Assert: Verify success and response structure
+        assert response.status_code == 200
+        activity_data = response.json()
+        assert isinstance(activity_data, dict)
+        assert "description" in activity_data
+        assert "schedule" in activity_data
+        assert "max_participants" in activity_data
+        assert "participants" in activity_data
+
+    def test_get_activity_returns_correct_data(self):
+        """
+        Test that retrieved activity has the expected fields and values
+        
+        Validates:
+        - Description is returned correctly
+        - Schedule is returned correctly
+        - Max participants is a positive integer
+        - Participants list is included
+        """
+        # Arrange: Target Programming Class
+        activity_name = "Programming Class"
+        
+        # Act: Get the activity
+        response = client.get(f"/activities/{activity_name}")
+        activity = response.json()
+        
+        # Assert: Verify all fields are present and valid
+        assert isinstance(activity["description"], str)
+        assert len(activity["description"]) > 0
+        assert isinstance(activity["schedule"], str)
+        assert len(activity["schedule"]) > 0
+        assert isinstance(activity["max_participants"], int)
+        assert activity["max_participants"] > 0
+        assert isinstance(activity["participants"], list)
+
+    def test_get_nonexistent_activity_returns_404(self):
+        """
+        Test that requesting a non-existent activity returns 404
+        
+        Validates:
+        - Invalid activity names are rejected
+        - Proper HTTP 404 status code is returned
+        - Error message is descriptive
+        """
+        # Arrange: Use a non-existent activity name
+        nonexistent_activity = "Nonexistent Activity"
+        
+        # Act: Try to get the non-existent activity
+        response = client.get(f"/activities/{nonexistent_activity}")
+        
+        # Assert: Verify 404 error
+        assert response.status_code == 404
+        error_detail = response.json()["detail"]
+        assert "not found" in error_detail.lower()
+
+    def test_get_activity_includes_current_participants(self):
+        """
+        Test that activity includes current participant list
+        
+        Validates:
+        - Participants list is returned
+        - List can be empty or contain emails
+        - Each participant is a string
+        """
+        # Arrange: Get a known activity
+        activity_name = "Soccer Team"
+        
+        # Act: Retrieve the activity
+        response = client.get(f"/activities/{activity_name}")
+        activity = response.json()
+        
+        # Assert: Verify participants list
+        assert "participants" in activity
+        assert isinstance(activity["participants"], list)
+        for participant in activity["participants"]:
+            assert isinstance(participant, str)
+
+    def test_get_activity_with_special_characters_in_name(self):
+        """
+        Test getting activity with special characters in URL
+        
+        Validates:
+        - Spaces in activity names work correctly
+        - Activity lookup is case-sensitive or handles encoding
+        """
+        # Arrange: Use Swimming Club (has space)
+        activity_name = "Swimming Club"
+        
+        # Act: Get the activity
+        response = client.get(f"/activities/{activity_name}")
+        
+        # Assert: Should find the activity
+        assert response.status_code == 200
+        activity = response.json()
+        assert "description" in activity
 
 
 class TestSignupForActivity:
@@ -145,16 +234,17 @@ class TestSignupForActivity:
         - The student is not already signed up
         - The request succeeds with HTTP 200
         """
-        # Make a POST request to sign up a new student for the Chess Club activity
-        # The activity name is URL-encoded (%20 represents a space)
-        # The email parameter specifies the student's email address
+        # Arrange: Set up test data
+        activity_name = "Chess Club"
+        test_email = "newstudent@mergington.edu"
+        
+        # Act: Attempt to sign up for the activity
         response = client.post(
             "/activities/Chess%20Club/signup",
-            params={"email": "newstudent@mergington.edu"}
+            params={"email": test_email}
         )
         
-        # Verify the signup was successful with an HTTP 200 OK response
-        # This indicates the student was added to the activity's participants list
+        # Assert: Verify successful signup
         assert response.status_code == 200
 
     def test_signup_for_nonexistent_activity(self):
@@ -167,19 +257,18 @@ class TestSignupForActivity:
         
         This prevents students from signing up for activities that don't exist.
         """
-        # Attempt to sign up for an activity that doesn't exist in the database
-        # This tests the error handling path
+        # Arrange: Set up test data for non-existent activity
+        nonexistent_activity = "Nonexistent Activity"
+        test_email = "student@mergington.edu"
+        
+        # Act: Attempt to sign up for a non-existent activity
         response = client.post(
             "/activities/Nonexistent%20Activity/signup",
-            params={"email": "student@mergington.edu"}
+            params={"email": test_email}
         )
         
-        # Verify the API returns HTTP 404 (Not Found)
-        # This is the correct HTTP status for when a resource doesn't exist
+        # Assert: Verify the proper error response
         assert response.status_code == 404
-        
-        # Verify the response includes a descriptive error message
-        # The "detail" field contains the error message
         assert "Activity not found" in response.json()["detail"]
 
     def test_duplicate_signup_rejected(self):
@@ -194,36 +283,26 @@ class TestSignupForActivity:
         
         This prevents duplicate entries and maintains data integrity.
         """
-        # Fetch all activities to find one with existing participants
-        # We need a real participant email to test the duplicate signup logic
+        # Arrange: Find an activity with existing participants
         activities_response = client.get("/activities")
         activities = activities_response.json()
 
-        # Search for the first activity that has participants already signed up
         activity_with_participants = None
         existing_email = None
         for activity_name, details in activities.items():
             if details["participants"]:
-                # Found an activity with participants
                 activity_with_participants = activity_name
-                # Get the email of the first participant (someone already signed up)
                 existing_email = details["participants"][0]
                 break
 
-        # Only run the test if we found an activity with participants
+        # Act & Assert: Only test if we found an activity with participants
         if activity_with_participants:
-            # Attempt to sign up the same student again (duplicate signup)
-            # This should fail because they're already enrolled
             response = client.post(
                 f"/activities/{activity_with_participants}/signup",
                 params={"email": existing_email}
             )
             
-            # Verify the API returns HTTP 400 (Bad Request)
-            # This indicates a client error (trying to do something not allowed)
             assert response.status_code == 400
-            
-            # Verify the error message indicates they're already signed up
             assert "already signed up" in response.json()["detail"]
 
     def test_signup_increases_participant_count(self):
@@ -238,33 +317,22 @@ class TestSignupForActivity:
         
         This ensures the signup actually persists the data.
         """
-        # Target the Programming Class activity for this test
+        # Arrange: Set up test data and get initial state
         activity_name = "Programming Class"
-        
-        # Create a unique email to avoid conflicts with previous test runs
-        # Using a timestamp-like approach to ensure uniqueness
         test_email = "test_participant_unique@mergington.edu"
-
-        # Get the initial state before signup: fetch all activities and count participants
         activities_before = client.get("/activities").json()
         initial_count = len(activities_before[activity_name]["participants"])
 
-        # Send the signup request to add the test student to the activity
+        # Act: Send the signup request
         response = client.post(
             f"/activities/{activity_name}/signup",
             params={"email": test_email}
         )
 
-        # Only check the results if the signup was successful (HTTP 200)
+        # Assert: Verify signup success and persistence
         if response.status_code == 200:
-            # Fetch the updated activities list to verify the change persisted
             activities_after = client.get("/activities").json()
             final_count = len(activities_after[activity_name]["participants"])
 
-            # Verify the participant count increased by exactly 1
-            # This proves the student was added to the database
             assert final_count == initial_count + 1
-            
-            # Verify the test student's email is now in the participants list
-            # This confirms the correct email was recorded
             assert test_email in activities_after[activity_name]["participants"]
